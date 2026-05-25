@@ -1,66 +1,75 @@
 # Notify Server
 
-שרת WebSocket עם אימות מבוסס-session. המשתמש מתחבר בחיבור קבוע ושולח התראות
-(`notifications`) בזמן אמת; השרת מאזין תמיד, שומר אותן ומחזיר `ack`.
+A WebSocket server with session-based authentication. The client authenticates
+once over REST to get a token, then opens a persistent WebSocket connection and
+streams `notifications` in real time. The server always listens, stores each
+notification, and replies with an `ack`.
 
-## ארכיטקטורה
+## Architecture
 
-המערכת מפרידה בין שתי אחריות:
+The system separates two responsibilities:
 
-| שכבה | פרוטוקול | תפקיד |
-|------|----------|-------|
-| אימות | `PUT /auth/session` (REST) | בקשה חד-פעמית: username + password ← token |
-| התראות | `WS /ws?token=...` (WebSocket) | חיבור קבוע: המשתמש דוחף notifications לשרת |
+| Layer        | Protocol                    | Role                                              |
+|--------------|-----------------------------|---------------------------------------------------|
+| Auth         | `PUT /auth/session` (REST)  | One-off request: username + password → token      |
+| Notifications| `WS /ws?token=...` (WebSocket) | Persistent connection: client pushes notifications |
 
-ה-`session` הוא הגשר: ה-`PUT` מנפיק `token`, וה-`token` פותח את ה-WebSocket.
+The `session` is the bridge: the `PUT` issues a `token`, and the `token` opens
+the WebSocket.
 
 ```
 client ──PUT /auth/session (user, pass)──▶ server
 client ◀──────── { session_id, token } ──── server
-client ──WS connect ?token=...──────────▶ server   (חיבור נשאר פתוח)
+client ──WS connect ?token=...──────────▶ server   (connection stays open)
 client ──{ type, message, data }────────▶ server
 client ◀──────────────── { ack, ... } ──── server
 ```
 
-## מבנה תיקיות
+Once connected, the server also pushes a periodic heartbeat notification so the
+client knows it is still connected.
+
+## Project structure
 
 ```
 notify-server/
 ├── app/
 │   ├── main.py                # FastAPI entrypoint + /health
-│   ├── config.py              # הגדרות מבוססות-env
+│   ├── config.py              # env-based settings
 │   ├── schemas.py             # Pydantic models (auth + notifications)
 │   ├── security.py            # bcrypt hashing + token generation
-│   ├── store.py               # interfaces + מימוש in-memory (swappable)
-│   ├── connection_manager.py  # ניהול חיבורי WebSocket חיים
-│   └── routes.py              # endpoint של PUT + WebSocket
+│   ├── store.py               # interfaces + in-memory implementation (swappable)
+│   ├── connection_manager.py  # live WebSocket connection management
+│   └── routes.py              # PUT endpoint + WebSocket endpoint
 ├── client/
-│   └── test_client.py         # לקוח בדיקה ל-CLI
+│   └── test_client.py         # CLI test client
 ├── requirements.txt
 └── .env.example
 ```
 
-## הרצה
+## Running
 
 ```bash
-# 1. התקנה
+# 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. הרצת השרת
+# 2. Run the server
 uvicorn app.main:app --reload --port 8000
 
-# 3. בטרמינל שני — לקוח הבדיקה
+# 3. In a second terminal — run the test client
 python client/test_client.py
 ```
 
-משתמש דמו: `avi` / `secret123` (מוגדר ב-`store.py`).
+Demo user: `avi` / `secret123` (defined in `store.py`).
 
-## נקודות ל-production (השלבים הבאים)
+## Notes for production (next steps)
 
-- **Storage**: כרגע in-memory — נתונים נמחקים בכל restart. המימושים יושבים מאחורי
-  `SessionStore` / `NotificationStore`, אז מחליפים ל-Redis (sessions) ו-Firestore
-  (notifications) בלי לגעת בלוגיקה.
-- **Push דו-כיווני**: `ConnectionManager.send_to_user()` כבר מוכן — כשתרצה שהשרת
-  ידחוף התראות *למשתמש*, זה החיבור.
-- **Scale**: מספר תהליכי uvicorn ידרשו Redis Pub/Sub כדי לסנכרן חיבורי WS בין worker-ים.
-- **אבטחה**: rate-limit על ה-`PUT`, `wss://` (TLS) בפרוד, רענון token.
+- **Storage**: currently in-memory — data is wiped on every restart. The
+  implementations sit behind `SessionStore` / `NotificationStore`, so you can
+  swap to Redis (sessions) and Firestore (notifications) without touching the
+  logic.
+- **Bidirectional push**: `ConnectionManager.send_to_user()` is already in place —
+  the hook for when you want the server to push notifications *to* a user.
+- **Scale**: multiple uvicorn workers will need Redis Pub/Sub to sync WS
+  connections across processes.
+- **Security**: rate-limit the `PUT`, use `wss://` (TLS) in production, and add
+  token refresh.
