@@ -1,0 +1,14 @@
+services:
+  notify-server:
+    build: .
+    image: notify-server:latest
+    ports:
+      - "8000:8000"
+    # Copy .env.example to .env to set the demo account and other settings.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+    restart: unless-stopped
