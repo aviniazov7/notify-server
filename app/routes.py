@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import (
     APIRouter,
+    Depends,
     HTTPException,
     Query,
     Request,
@@ -12,6 +13,7 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from .schemas import (
@@ -21,8 +23,25 @@ from .schemas import (
     SessionResponse,
 )
 from .security import verify_password
+from .store import Session
 
 router = APIRouter()
+bearer = HTTPBearer(auto_error=False)
+
+
+def current_session(
+    request: Request,
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> Session:
+    """Resolve 'Authorization: Bearer <token>' to a live session, or 401."""
+    session = request.app.state.sessions.get_by_token(creds.credentials) if creds else None
+    if session is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return session
 
 
 def _to_out(saved) -> NotificationOut:
@@ -98,6 +117,14 @@ def create_session(body: SessionCreateRequest, request: Request) -> SessionRespo
         token=session.token,
         expires_at=session.expires_at,
     )
+
+
+@router.get("/notifications", response_model=list[NotificationOut])
+def list_notifications(
+    request: Request, session: Session = Depends(current_session)
+) -> list[NotificationOut]:
+    """The caller's notification history, oldest first (heartbeats are not stored)."""
+    return [_to_out(n) for n in request.app.state.notifications.list_for(session.username)]
 
 
 # ---------- 2) Persistent channel — the server "always listens" ----------
