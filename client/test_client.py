@@ -23,6 +23,20 @@ BASE = f"http://localhost:{settings.port}{settings.api_prefix}"
 WS_BASE = f"ws://localhost:{settings.port}{settings.api_prefix}"
 
 
+async def wait_for_reply(ws) -> dict:
+    """Read frames until the server answers our message (ack or error).
+
+    Server-pushed notifications (connected/heartbeat) can arrive in between,
+    so they are printed and skipped rather than mistaken for the reply.
+    """
+    while True:
+        msg = json.loads(await ws.recv())
+        if msg.get("type") in ("ack", "error"):
+            return msg
+        note = msg.get("notification", {})
+        print(f"[push] {note.get('type')}: {note.get('message')}")
+
+
 async def main() -> None:
     if not (settings.demo_username and settings.demo_password):
         raise SystemExit("Set DEMO_USERNAME and DEMO_PASSWORD (see .env.example)")
@@ -51,11 +65,16 @@ async def main() -> None:
              "data": {"symbol": "BTCUSDT", "rr": 2.5}},
             {"type": "alert", "message": "ETH crossed 3500"},
             {"type": "info", "message": "system heartbeat"},
+            {"message": "missing type -> server replies with an error"},
         ]
         for note in samples:
             await ws.send(json.dumps(note))
-            ack = json.loads(await ws.recv())
-            print(f"[ack]  {ack['notification']['type']}: {ack['notification']['message']}")
+            reply = await wait_for_reply(ws)
+            if reply["type"] == "error":
+                print(f"[err]  {reply.get('message')}")
+                continue
+            ack = reply["notification"]
+            print(f"[ack]  {ack['type']}: {ack['message']}")
 
 
 if __name__ == "__main__":
