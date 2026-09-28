@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from .config import Settings
 from .config import settings as default_settings
 from .connection_manager import ConnectionManager
+from .logging_config import setup_logging
 from .routes import router
 from .store import InMemoryNotificationStore, InMemorySessionStore, InMemoryUserStore
 
@@ -24,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     overridden settings (e.g. a short session TTL).
     """
     settings = settings or default_settings
+    setup_logging(settings.log_level)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
