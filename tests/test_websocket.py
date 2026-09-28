@@ -86,3 +86,17 @@ def test_session_expiring_mid_connection_is_rejected(make_client):
         with pytest.raises(WebSocketDisconnect) as exc:
             ws.receive_json()
         assert exc.value.code == status.WS_1008_POLICY_VIOLATION
+
+
+@pytest.mark.parametrize("send", ["text", "bytes"])
+def test_malformed_frame_gets_error_and_socket_stays_open(client, send):
+    with client.websocket_connect(ws_url(token_for(client))) as ws:
+        ws.receive_json()  # connected
+        if send == "text":
+            ws.send_text("{not valid json")
+        else:
+            ws.send_bytes(b"\x00\x01")
+        assert ws.receive_json() == {"type": "error", "message": "invalid JSON"}
+
+        ws.send_json({"type": "info", "message": "still here"})
+        assert ws.receive_json()["type"] == "ack"

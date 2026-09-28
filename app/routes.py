@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from datetime import UTC, datetime
 
@@ -39,6 +40,28 @@ def _to_out(saved) -> NotificationOut:
 def _envelope(kind: str, out: NotificationOut) -> dict:
     """Wrap a notification in the {type, notification} WS message shape."""
     return {"type": kind, "notification": out.model_dump(mode="json")}
+
+
+class _MalformedFrame(Exception):
+    """The client sent a frame that isn't a JSON text message."""
+
+
+async def _receive_json(ws: WebSocket) -> object:
+    """Receive one frame and decode it as JSON.
+
+    Raises WebSocketDisconnect when the client leaves and _MalformedFrame for
+    binary frames or invalid JSON, so the caller can reply instead of crashing.
+    """
+    message = await ws.receive()
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
+    text = message.get("text")
+    if text is None:
+        raise _MalformedFrame
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise _MalformedFrame from exc
 
 
 async def _heartbeat(username: str, ws: WebSocket, interval: int) -> None:
@@ -103,7 +126,11 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
 
     try:
         while True:
-            raw = await ws.receive_json()
+            try:
+                raw = await _receive_json(ws)
+            except _MalformedFrame:
+                await ws.send_json({"type": "error", "message": "invalid JSON"})
+                continue
 
             # Validate the incoming notification against the schema.
             try:
