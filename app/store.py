@@ -41,6 +41,9 @@ class Notification:
 # ---------- Interfaces ----------
 class UserStore(ABC):
     @abstractmethod
+    def add(self, username: str, password: str) -> User: ...
+
+    @abstractmethod
     def get(self, username: str) -> User | None: ...
 
 
@@ -66,10 +69,13 @@ class NotificationStore(ABC):
 # ---------- In-memory implementations ----------
 class InMemoryUserStore(UserStore):
     def __init__(self) -> None:
-        # Demo user for testing: avi / secret123
-        self._users: dict[str, User] = {
-            "avi": User("avi", hash_password("secret123")),
-        }
+        self._users: dict[str, User] = {}
+
+    def add(self, username: str, password: str) -> User:
+        """Create (or replace) a user, storing only the bcrypt hash."""
+        user = User(username, hash_password(password))
+        self._users[username] = user
+        return user
 
     def get(self, username: str) -> User | None:
         return self._users.get(username)

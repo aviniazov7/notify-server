@@ -5,7 +5,10 @@ Flow:
   2. open WS /ws?token=...
   3. stream notifications, print server acks
 
-Run the server first, then: python client/test_client.py
+Credentials come from DEMO_USERNAME / DEMO_PASSWORD (env or .env), the same
+values the server seeds on startup.
+
+Run the server first, then from the repo root: python -m client.test_client
 """
 
 import asyncio
@@ -14,19 +17,24 @@ import json
 import httpx
 import websockets
 
-BASE = "http://localhost:8000/api/v1"
-WS_BASE = "ws://localhost:8000/api/v1"
+from app.config import settings
 
-USERNAME = "avi"
-PASSWORD = "secret123"
+BASE = f"http://localhost:{settings.port}{settings.api_prefix}"
+WS_BASE = f"ws://localhost:{settings.port}{settings.api_prefix}"
 
 
 async def main() -> None:
+    if not (settings.demo_username and settings.demo_password):
+        raise SystemExit("Set DEMO_USERNAME and DEMO_PASSWORD (see .env.example)")
+
     # 1) Authenticate via PUT -> receive session token
     async with httpx.AsyncClient() as client:
         resp = await client.put(
             f"{BASE}/auth/session",
-            json={"username": USERNAME, "password": PASSWORD},
+            json={
+                "username": settings.demo_username,
+                "password": settings.demo_password.get_secret_value(),
+            },
         )
         resp.raise_for_status()
         session = resp.json()
