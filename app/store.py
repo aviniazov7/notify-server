@@ -2,15 +2,15 @@
 
 Defines abstract stores (interfaces) and in-memory implementations.
 To move to Redis/Firestore later, implement these same ABCs and swap the
-instances in routes.py — no other code needs to change.
+instances in main.create_app() — no other code needs to change.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-import uuid
+from datetime import UTC, datetime, timedelta
 
-from .security import hash_password, generate_token
+from .security import generate_token, hash_password
 
 
 # ---------- Domain models ----------
@@ -41,6 +41,9 @@ class Notification:
 # ---------- Interfaces ----------
 class UserStore(ABC):
     @abstractmethod
+    def add(self, username: str, password: str) -> User: ...
+
+    @abstractmethod
     def get(self, username: str) -> User | None: ...
 
 
@@ -66,10 +69,13 @@ class NotificationStore(ABC):
 # ---------- In-memory implementations ----------
 class InMemoryUserStore(UserStore):
     def __init__(self) -> None:
-        # Demo user for testing: avi / secret123
-        self._users: dict[str, User] = {
-            "avi": User("avi", hash_password("secret123")),
-        }
+        self._users: dict[str, User] = {}
+
+    def add(self, username: str, password: str) -> User:
+        """Create (or replace) a user, storing only the bcrypt hash."""
+        user = User(username, hash_password(password))
+        self._users[username] = user
+        return user
 
     def get(self, username: str) -> User | None:
         return self._users.get(username)
@@ -85,7 +91,7 @@ class InMemorySessionStore(SessionStore):
             session_id=str(uuid.uuid4()),
             username=username,
             token=generate_token(),
-            expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+            expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
         )
         self._by_id[session.session_id] = session
         self._by_token[session.token] = session
@@ -95,7 +101,7 @@ class InMemorySessionStore(SessionStore):
         session = self._by_token.get(token)
         if session is None:
             return None
-        if session.expires_at < datetime.now(timezone.utc):
+        if session.expires_at < datetime.now(UTC):
             self.delete(session.session_id)  # lazy expiry cleanup
             return None
         return session
@@ -117,7 +123,7 @@ class InMemoryNotificationStore(NotificationStore):
             type=type,
             message=message,
             data=data,
-            received_at=datetime.now(timezone.utc),
+            received_at=datetime.now(UTC),
         )
         self._items.append(notification)
         return notification
