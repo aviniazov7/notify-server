@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -35,7 +36,7 @@ bearer = HTTPBearer(auto_error=False)
 
 def current_session(
     request: Request,
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
 ) -> Session:
     """Resolve 'Authorization: Bearer <token>' to a live session, or 401."""
     session = request.app.state.sessions.get_by_token(creds.credentials) if creds else None
@@ -47,6 +48,9 @@ def current_session(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return session
+
+
+CurrentSession = Annotated[Session, Depends(current_session)]
 
 
 def _to_out(saved) -> NotificationOut:
@@ -133,7 +137,7 @@ def create_session(body: SessionCreateRequest, request: Request) -> SessionRespo
 
 
 @router.delete("/auth/session", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_session(request: Request, session: Session = Depends(current_session)) -> None:
+async def delete_session(request: Request, session: CurrentSession) -> None:
     """Log out: invalidate the token and close the sockets opened with it."""
     state = request.app.state
     state.sessions.delete(session.session_id)
@@ -146,16 +150,14 @@ async def delete_session(request: Request, session: Session = Depends(current_se
 
 
 @router.get("/notifications", response_model=list[NotificationOut])
-def list_notifications(
-    request: Request, session: Session = Depends(current_session)
-) -> list[NotificationOut]:
+def list_notifications(request: Request, session: CurrentSession) -> list[NotificationOut]:
     """The caller's notification history, oldest first (heartbeats are not stored)."""
     return [_to_out(n) for n in request.app.state.notifications.list_for(session.username)]
 
 
 # ---------- 2) Persistent channel — the server "always listens" ----------
 @router.websocket("/ws")
-async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
+async def ws_endpoint(ws: WebSocket, token: Annotated[str, Query()]) -> None:
     """Authenticated WebSocket. Client streams notifications; server stores + acks."""
     state = ws.app.state
     session = state.sessions.get_by_token(token)
@@ -175,9 +177,7 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
     await ws.send_json(_envelope("notification", _to_out(welcome)))
 
     # Background task: push a heartbeat every heartbeat_seconds while connected.
-    hb_task = asyncio.create_task(
-        _heartbeat(username, ws, state.settings.heartbeat_seconds)
-    )
+    hb_task = asyncio.create_task(_heartbeat(username, ws, state.settings.heartbeat_seconds))
 
     try:
         while True:
@@ -211,7 +211,9 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
             await ws.send_json(_envelope("ack", _to_out(saved)))
 
     except WebSocketDisconnect as exc:
-        log.info("ws disconnected user=%r session=%s code=%s", username, session.session_id, exc.code)
+        log.info(
+            "ws disconnected user=%r session=%s code=%s", username, session.session_id, exc.code
+        )
     finally:
         # Always stop the heartbeat and drop the connection, however we exit.
         hb_task.cancel()

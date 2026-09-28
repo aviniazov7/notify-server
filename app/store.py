@@ -5,12 +5,12 @@ To move to Redis/Firestore later, implement these same ABCs and swap the
 instances in main.create_app() — no other code needs to change.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-import uuid
+from datetime import UTC, datetime, timedelta
 
-from .security import hash_password, generate_token
+from .security import generate_token, hash_password
 
 
 # ---------- Domain models ----------
@@ -91,7 +91,7 @@ class InMemorySessionStore(SessionStore):
             session_id=str(uuid.uuid4()),
             username=username,
             token=generate_token(),
-            expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+            expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
         )
         self._by_id[session.session_id] = session
         self._by_token[session.token] = session
@@ -101,7 +101,7 @@ class InMemorySessionStore(SessionStore):
         session = self._by_token.get(token)
         if session is None:
             return None
-        if session.expires_at < datetime.now(timezone.utc):
+        if session.expires_at < datetime.now(UTC):
             self.delete(session.session_id)  # lazy expiry cleanup
             return None
         return session
@@ -123,7 +123,7 @@ class InMemoryNotificationStore(NotificationStore):
             type=type,
             message=message,
             data=data,
-            received_at=datetime.now(timezone.utc),
+            received_at=datetime.now(UTC),
         )
         self._items.append(notification)
         return notification

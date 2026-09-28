@@ -61,8 +61,11 @@ async def main() -> None:
 
         # 3) Send a few notifications
         samples = [
-            {"type": "trade_signal", "message": "BTC long @ 65000",
-             "data": {"symbol": "BTCUSDT", "rr": 2.5}},
+            {
+                "type": "trade_signal",
+                "message": "BTC long @ 65000",
+                "data": {"symbol": "BTCUSDT", "rr": 2.5},
+            },
             {"type": "alert", "message": "ETH crossed 3500"},
             {"type": "info", "message": "system heartbeat"},
             {"message": "missing type -> server replies with an error"},
