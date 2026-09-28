@@ -111,7 +111,7 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
             # Validate the incoming notification against the schema.
             try:
                 incoming = NotificationIn(**raw)
-            except (ValidationError, TypeError) as exc:
+            except (ValidationError, TypeError):
                 await ws.send_json({"type": "error", "message": "invalid notification"})
                 continue
 
