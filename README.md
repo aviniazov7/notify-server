@@ -1,5 +1,7 @@
 # Notify Server
 
+[![CI](https://github.com/aviniazov7/notify-server/actions/workflows/ci.yml/badge.svg)](https://github.com/aviniazov7/notify-server/actions/workflows/ci.yml)
+
 A WebSocket server with session-based authentication. The client authenticates
 once over REST to get a token, then opens a persistent WebSocket connection and
 streams `notifications` in real time. The server always listens, stores each
