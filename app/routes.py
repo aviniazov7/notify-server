@@ -15,6 +15,7 @@ from fastapi import (
 )
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
+from starlette.websockets import WebSocketState
 
 from .schemas import (
     NotificationIn,
@@ -99,6 +100,8 @@ async def _heartbeat(username: str, ws: WebSocket, interval: int) -> None:
             data=None,
             received_at=datetime.now(UTC),
         )
+        if ws.application_state is not WebSocketState.CONNECTED:
+            return  # closed server-side (e.g. logout); the endpoint cleans up
         await ws.send_json(_envelope("notification", out))
 
 
@@ -116,6 +119,16 @@ def create_session(body: SessionCreateRequest, request: Request) -> SessionRespo
         session_id=session.session_id,
         token=session.token,
         expires_at=session.expires_at,
+    )
+
+
+@router.delete("/auth/session", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(request: Request, session: Session = Depends(current_session)) -> None:
+    """Log out: invalidate the token and close the sockets opened with it."""
+    state = request.app.state
+    state.sessions.delete(session.session_id)
+    await state.manager.close_session(
+        session.session_id, code=status.WS_1000_NORMAL_CLOSURE, reason="logged out"
     )
 
 
@@ -139,7 +152,7 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
         return
 
     username = session.username
-    await state.manager.connect(username, ws)
+    await state.manager.connect(username, session.session_id, ws)
 
     # As soon as the socket is open, push a real "connected" notification.
     # Stored like any other notification, so it shows up in the user's history too.
@@ -155,6 +168,8 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
         while True:
             try:
                 raw = await _receive_json(ws)
+                if ws.application_state is not WebSocketState.CONNECTED:
+                    break  # closed server-side (logout) while this frame was in flight
             except _MalformedFrame:
                 await ws.send_json({"type": "error", "message": "invalid JSON"})
                 continue
@@ -182,4 +197,4 @@ async def ws_endpoint(ws: WebSocket, token: str = Query(...)) -> None:
     finally:
         # Always stop the heartbeat and drop the connection, however we exit.
         hb_task.cancel()
-        state.manager.disconnect(username, ws)
+        state.manager.disconnect(username, session.session_id, ws)
