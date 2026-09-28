@@ -2,7 +2,7 @@
 
 Defines abstract stores (interfaces) and in-memory implementations.
 To move to Redis/Firestore later, implement these same ABCs and swap the
-instances in routes.py — no other code needs to change.
+instances in main.create_app() — no other code needs to change.
 """
 
 from abc import ABC, abstractmethod
